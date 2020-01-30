@@ -34,7 +34,7 @@ def res_block(x):
     return out
 
 
-def Generator(size=None, channels=3, res_block_repeat=16, zoom=4, name='generator'):
+def Generator(size=None, channels=3, res_block_repeat=16, scale=4, name='generator'):
     inputs = Input([size, size, channels], name='inputs')
 
     x = Conv2D(filters=64, kernel_size=9, strides=1, padding='same', use_bias=False, kernel_regularizer=_regularizer)(inputs)
@@ -49,7 +49,7 @@ def Generator(size=None, channels=3, res_block_repeat=16, zoom=4, name='generato
     x = BatchNormalization()(x)
     x = tf.add(x, skip_layer)
 
-    for _ in range(int(math.sqrt(zoom))):
+    for _ in range(int(math.sqrt(scale))):
         x = Conv2DTranspose(filters=64, kernel_size=3, strides=2, padding='same', use_bias=False, kernel_regularizer=_regularizer)(x)
         x = PReLU(shared_axes=[1, 2])(x)
 
