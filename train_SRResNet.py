@@ -57,6 +57,14 @@ def main(args):
     @tf.function
     def pre_train_step(lr, hr, generator):
         with tf.GradientTape() as gen_tape:
+            ## re-scale
+            ## lr: 0 ~ 1
+            ## hr: -1 ~ 1
+            lr = tf.cast(lr, tf.float32)
+            hr = tf.cast(hr, tf.float32)
+            lr = lr / 255
+            hr = hr / 127.5 - 1
+
             sr = generator(lr, training=True)
             loss = mse_based_loss(sr, hr)
 
@@ -65,18 +73,12 @@ def main(args):
 
         return loss
 
-    def valid_step(image_path, weights_path, step):
+    def valid_step(image_path, gene, step):
         img = np.array(Image.open(image_path))[..., :3]
 
         scaled_lr_img = tf.cast(img, tf.float32)
         scaled_lr_img = scaled_lr_img / 255
         scaled_lr_img = scaled_lr_img[np.newaxis,:,:,:]
-
-        gene = Generator(None)
-        
-        files_path = os.path.join(weights_path, '*.h5')
-        latest_file_path = sorted(glob.iglob(files_path), key=os.path.getctime, reverse=True)[0]
-        gene.load_weights(latest_file_path)
         
         sr_img = gene(scaled_lr_img).numpy()
         
@@ -93,13 +95,6 @@ def main(args):
     # Start Train
     start = time.time()
     for pre_step, (lr, hr) in enumerate(train_ds.take(args.max_pre_train_step + 1)):
-        ## re-scale
-        ## lr: 0 ~ 1
-        ## hr: -1 ~ 1
-        lr = tf.cast(lr, tf.float32)
-        hr = tf.cast(hr, tf.float32)
-        lr = lr / 255
-        hr = hr / 127.5 - 1
 
         mse = pre_train_step(lr, hr, gene)
 
@@ -112,7 +107,6 @@ def main(args):
         if pre_step % args.interval_show_info == 0:
             print('step:{}/{} MSE_LOSS {}, Training time is {} step/s'.format(pre_step, args.max_pre_train_step, mse, (time.time() - start) / args.interval_show_info))
             start = time.time()
-
 
 
 if __name__ == '__main__':
