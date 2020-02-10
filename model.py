@@ -93,11 +93,5 @@ def Content_Net(size=None, channels=3, i=5, j=4):
     vgg19 = VGG19(weights='imagenet', include_top=False, input_shape=(size, size, channels))
     block_name = 'block{}_conv{}'.format(i, j)
 
-    vgg19.trainable = False
-    # Make trainable as False
-    for l in vgg19.layers:
-        l.trainable = False
     model = Model(inputs=vgg19.input, outputs=vgg19.get_layer(block_name).output)
-    model.trainable = False
-
     return model

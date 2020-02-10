@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 from model import Generator, Discriminator, Content_Net
+from loss import generator_loss, discriminator_loss, content_loss, mse_based_loss
 from dataset import DIV2K
 
 
@@ -30,30 +31,6 @@ def get_parser():
     return args
 
 
-def discriminator_loss(real_output, fake_output):
-    cross_entropy = tf.keras.losses.BinaryCrossentropy()
-    real_loss = cross_entropy(tf.ones_like(real_output), real_output)
-    fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
-    total_loss = real_loss + fake_loss
-    return total_loss
-
-
-def generator_loss(fake_output):
-    cross_entropy = tf.keras.losses.BinaryCrossentropy()
-    return cross_entropy(tf.ones_like(fake_output), fake_output)
-
-
-def content_loss(content_model, hr, sr):
-    # real_output, fake_output range: -1 ~ 1
-
-    mse = tf.keras.losses.MeanSquaredError()
-
-    hr_feature = content_model(hr) / 12.75
-    sr_feature = content_model(sr) / 12.75
-
-    return mse(hr_feature, sr_feature)
-
-
 def main(args):
 
     if not os.path.exists(args.output_folder):
@@ -74,7 +51,7 @@ def main(args):
     # Create a tf.data.Dataset
     train_ds = train_loader.dataset(batch_size=args.batch_size, random_transform=True)
 
-    gene = Generator(args.train_lr_size)
+    gene = Generator()
 
     ## load pre_trained_weights
     files_path = os.path.join(args.pre_trained_weight_path, '*.h5')
@@ -83,9 +60,9 @@ def main(args):
 
     disc = Discriminator(args.train_lr_size * args.train_scale)
     tf.keras.utils.plot_model(disc, to_file=os.path.join(model_subs_path, 'discriminator.png'), show_shapes=True, show_layer_names=True, expand_nested=True)
-    content_model = Content_Net(args.train_lr_size * args.train_scale)
+    content_model = Content_Net()
     tf.keras.utils.plot_model(content_model, to_file=os.path.join(model_subs_path, 'content.png'), show_shapes=True, show_layer_names=True, expand_nested=True)
-    
+
     learning_rate_fn = tf.keras.optimizers.schedules.PiecewiseConstantDecay(args.learning_schedule, args.learning_rate)
 
     generator_optimizer = tf.keras.optimizers.Adam(learning_rate_fn)
@@ -93,17 +70,27 @@ def main(args):
 
     @tf.function
     def train_step(lr, hr, generator, discriminator, content):
+
         with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+            ## re-scale
+            ## lr: 0 ~ 1
+            ## hr: -1 ~ 1
+            lr = tf.cast(lr, tf.float32)
+            hr = tf.cast(hr, tf.float32)
+            lr = lr / 255
+            hr = hr / 127.5 - 1
+
             sr = generator(lr, training=True)
 
-            hr_output = discriminator(hr, training=True)
             sr_output = discriminator(sr, training=True)
+            hr_output = discriminator(hr, training=True)
 
+            disc_loss = discriminator_loss(sr_output, hr_output)
+
+            mse_loss = mse_based_loss(sr, hr)
             gen_loss = generator_loss(sr_output)
-            cont_loss = content_loss(content, hr, sr)
-            perceptual_loss = cont_loss + 1e-3 * gen_loss
-
-            disc_loss = discriminator_loss(hr_output, sr_output)
+            cont_loss = content_loss(content, sr, hr)
+            perceptual_loss = mse_loss + cont_loss + 1e-3 * gen_loss
 
         gradients_of_generator = gen_tape.gradient(perceptual_loss, generator.trainable_variables)
         gradients_of_discriminator = disc_tape.gradient(disc_loss, discriminator.trainable_variables)
@@ -113,18 +100,12 @@ def main(args):
 
         return perceptual_loss, disc_loss
 
-    def valid_step(image_path, weights_path, step):
+    def valid_step(image_path, gene, step):
         img = np.array(Image.open(image_path))[..., :3]
 
         scaled_lr_img = tf.cast(img, tf.float32)
         scaled_lr_img = scaled_lr_img / 255
         scaled_lr_img = scaled_lr_img[np.newaxis,:,:,:]
-
-        gene = Generator(None)
-        
-        files_path = os.path.join(weights_path, 'gen_step_*')
-        latest_file_path = sorted(glob.iglob(files_path), key=os.path.getctime, reverse=True)[0]
-        gene.load_weights(latest_file_path)
         
         sr_img = gene(scaled_lr_img).numpy()
         
@@ -140,13 +121,6 @@ def main(args):
 
     start = time.time()
     for step, (lr, hr) in enumerate(train_ds.take(args.max_train_step + 1)):
-        ## re-scale
-        ## lr: 0 ~ 1
-        ## hr: -1 ~ 1
-        lr = tf.cast(lr, tf.float32)
-        hr = tf.cast(hr, tf.float32)
-        lr = lr / 255
-        hr = hr / 127.5 - 1
 
         gen_loss, disc_loss = train_step(lr, hr, gene, disc, content_model)
 
@@ -155,7 +129,7 @@ def main(args):
             disc.save_weights(os.path.join(weights_path, 'disc_step_{}.h5'.format(step)))
 
         if step % args.interval_validation == 0:
-            valid_step(args.valid_image_path, weights_path, step)
+            valid_step(args.valid_image_path, gene, step)
 
         if step % args.interval_show_info == 0:
             print('step:{}/{} gen_loss {}, disc_loss {}, Training time is {} step/s'.format(step, args.max_train_step, gen_loss, disc_loss, (time.time() - start) / args.interval_show_info))

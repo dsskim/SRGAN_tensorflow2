@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from PIL import Image
 
 from model import Generator
+from loss import mse_based_loss
 from dataset import DIV2K
 
 
@@ -26,11 +27,6 @@ def get_parser():
 
     args = parser.parse_args()
     return args
-
-
-def mse_based_loss(sr, hr):
-    mse = tf.keras.losses.MeanSquaredError()
-    return mse(sr, hr)
 
 
 def main(args):
