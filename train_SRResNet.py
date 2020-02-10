@@ -102,7 +102,7 @@ def main(args):
             gene.save_weights(os.path.join(weights_path, 'pre_gen_step_{}.h5'.format(pre_step)))
 
         if pre_step % args.interval_validation == 0:
-            valid_step(args.valid_image_path, weights_path, pre_step)
+            valid_step(args.valid_image_path, gene, pre_step)
 
         if pre_step % args.interval_show_info == 0:
             print('step:{}/{} MSE_LOSS {}, Training time is {} step/s'.format(pre_step, args.max_pre_train_step, mse, (time.time() - start) / args.interval_show_info))
